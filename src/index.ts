@@ -1,3 +1,4 @@
+import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { compress } from "hono/compress";
 import { secureHeaders } from "hono/secure-headers";
@@ -39,7 +40,11 @@ app.post("/", async (c) => {
   }
 });
 
-export default {
-  port: process.env.PORT || 5987,
+const port = +(process.env.PORT || "5987");
+
+console.log(`listening on port http://localhost:${port}`);
+
+serve({
+  port,
   fetch: app.fetch,
-};
+});

@@ -5,6 +5,9 @@ import { secureHeaders } from "hono/secure-headers";
 import pino from "pino";
 import { z } from "zod";
 
+import { getResultAsync, getResultSync } from "./utils/result";
+import { sendSlackWebhook } from "./utils/slack";
+
 const app = new Hono();
 
 app.use("*", secureHeaders());
@@ -21,23 +24,52 @@ const bodySchema = z
 const log = pino();
 
 app.post("/", async (c) => {
-  try {
-    log.info(`length: ${c.req.header("content-length")}`);
+  log.info(`length: ${c.req.header("content-length")}`);
 
-    const body = await c.req.text();
-    const validatedBody = bodySchema.parse(body);
+  const bodyResult = await getResultAsync(() => c.req.text());
 
-    log.info(validatedBody, "body");
+  if (bodyResult.isErr) {
+    log.error(bodyResult.error, "body error");
 
-    return c.json({
-      success: true,
-    });
-  } catch (error) {
-    log.error(error);
     return c.json({
       success: false,
+      message: "error reading request body",
     });
   }
+
+  const slackResult = await getResultAsync(() =>
+    sendSlackWebhook(bodyResult.value),
+  );
+
+  if (slackResult.isErr) {
+    log.error(slackResult.error, "slack error");
+  }
+
+  const validationResult = getResultSync(() =>
+    bodySchema.parse(bodyResult.value),
+  );
+
+  if (validationResult.isErr) {
+    log.error(validationResult.error, "validation error");
+
+    return c.json({
+      success: false,
+      message: validationResult.error.message,
+    });
+  }
+
+  const body = validationResult.value;
+
+  log.info(body, "body");
+
+  const message = slackResult.isErr
+    ? slackResult.error.message
+    : "successfully logged";
+
+  return c.json({
+    success: true,
+    message,
+  });
 });
 
 const port = +(process.env.PORT || "5987");
